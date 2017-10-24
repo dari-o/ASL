@@ -1,3 +1,4 @@
+package Middleware;
 import java.util.Iterator;
 import java.util.Queue;
 import java.util.Set;
@@ -50,9 +51,11 @@ public class MyMiddleware{
 		                }
 		                // read events are for client channels. Add "request" to the queue
 		                if (key.isReadable()) {
+				    System.out.println("clients has sent a request!");
 		                    SocketChannel client = (SocketChannel) key.channel();
 		                    requestQueue.add(client);
-		                    System.out.println();
+				    System.out.println(requestQueue.size());
+		                    
 		                }
 		                iter.remove();
 		            }
@@ -71,17 +74,17 @@ public class MyMiddleware{
 		
 		//initialize the queue
 		final Queue<SocketChannel> requestQueue = new LinkedBlockingQueue<SocketChannel>();
+		System.out.println(requestQueue.isEmpty());
 		MyMiddleware middleware = new MyMiddleware(port);
-		ExecutorService executorService = Executors.newFixedThreadPool(10);
+		/*ExecutorService executorService = Executors.newFixedThreadPool(10);
 		
 		//start workers 
 		executorService.execute(new WorkerThread(requestQueue){			
 		});
 		
 		
-		middleware.startWorkers(executorService);
-		middleware.connectToClients(requestQueue);
-		executorService.shutdown();
+		*/middleware.connectToClients(requestQueue);
+		//executorService.shutdown();
 		
 		
 	}
