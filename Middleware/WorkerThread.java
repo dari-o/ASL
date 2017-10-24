@@ -1,6 +1,8 @@
-package Middleware;
+package middleware;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.Queue;
 import java.io.*;
@@ -9,9 +11,11 @@ import java.io.*;
 //Class for the worker 
 public class WorkerThread implements Runnable{
 	Queue<SocketChannel> requestQueue;
+	Selector selector;
 	
-	public WorkerThread(Queue<SocketChannel> ruquestQueue){
+	public WorkerThread(Queue<SocketChannel> requestQueue, Selector selector){
 		this.requestQueue = requestQueue;
+		this.selector = selector;
 	}
 	
 	
@@ -78,39 +82,51 @@ public class WorkerThread implements Runnable{
 	public boolean set(String request, BufferedReader in, PrintWriter out){
 		String[] key_val = request.split(" ");
 		// get number of Bytes
-		int numBytes = key_val[1].getBytes().length;
-		// 
+		int numBytes = key_val[1].getBytes().length; 
 		String command = "set ";
 		//TODO 
 		return false;
 	}
 	public void run(){
 		//check if there is Something in the queue
-		while(this.requestQueue.isEmpty()){
-			SocketChannel client = this.requestQueue.poll();
+		while(true){
+			SocketChannel client = null;
+			synchronized(this.requestQueue){
+				if(!this.requestQueue.isEmpty())
+					//make sure that the threads
+					client= this.requestQueue.poll();
+			}
 			processClientMessage(client);
-			
 		}
 	}
 	private void processClientMessage(SocketChannel client) {
+		if (client == null) return;
 		ByteBuffer buffer = ByteBuffer.allocate(1536);
 		try {
+			//System.out.println("Ok we are trying to process some message");
 			int readByte =client.read(buffer);
-			StringBuffer request = new StringBuffer("");
-			while(readByte!=-1){
+			
+			while(readByte!=0){
+				StringBuffer request = new StringBuffer("");
 				buffer.flip();
+				
 				while(buffer.hasRemaining()) request.append((char) buffer.get());
 				CommandType type = getCommandType(request.charAt(0));
-				System.out.println(request.toString());
-			}			
+				System.out.println(request.toString().replace('\n' , ' '));
+				buffer.clear();
+				readByte = client.read(buffer);
+
+				/*if( type== CommandType.SET){
+					System.out.println("This should be the value" + new String(buffer.array()));
+				}*/
+			}
 			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
-
-
+	
 	public String hashedKey(){
 		// TODO 
 		return null;
