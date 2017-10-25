@@ -112,9 +112,13 @@ public class WorkerThread implements Runnable{
 				
 				while(buffer.hasRemaining()) request.append((char) buffer.get());
 				CommandType type = getCommandType(request.charAt(0));
-				System.out.println(request.toString().replace('\n' , ' '));
+				System.out.println(request.toString());
+				//System.out.println(request.toString().split("\n")[0]);
+				System.out.println(type.toString());
 				buffer.clear();
+
 				readByte = client.read(buffer);
+				System.out.println(readByte);
 
 				/*if( type== CommandType.SET){
 					System.out.println("This should be the value" + new String(buffer.array()));
