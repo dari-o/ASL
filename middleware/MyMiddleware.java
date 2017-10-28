@@ -6,27 +6,34 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.net.*;
+import java.util.List;
 import java.io.*;
 import java.nio.channels.*;
 public class MyMiddleware{
-
 	
-	private int port;
+	String myIp;
+	int myPort = 0;
+	List<String> mcAddresses = null;
+	int numThreadsPTP = -1;
+	boolean readSharded = false;
+	double numServers;
+	List<Double> serverPoints;
 	
-	public MyMiddleware(int port){
-		this.port = port;
+	public MyMiddleware(String myIp, int myPort, List<String> mcAddresses, int numThreadsPTP, boolean readSharded){
+		this.myPort = myPort;
+		this.myIp = myIp;
+		this.mcAddresses = mcAddresses;
+		this.numThreadsPTP = numThreadsPTP;
+		this.readSharded = readSharded;
+		this.numServers = (double) mcAddresses.size();
 	}
 	
-	public void startWorkers(ExecutorService executor){
-		
-		
-	}
 	
 	public void connectToClients(Queue<SocketChannel> requestQueue, Selector selector){
 		try {
 				//create a selector and a socket channel. Register channel on the selector
 				ServerSocketChannel middlewareSocket = ServerSocketChannel.open();
-				middlewareSocket.socket().bind(new InetSocketAddress("localhost", this.port));
+				middlewareSocket.socket().bind(new InetSocketAddress("localhost", this.myPort));
 				
 				
 				//configure non blocking mode. Otherwise, can't use selector
@@ -60,32 +67,30 @@ public class MyMiddleware{
 	          
 	        } catch (IOException e) {
 	            System.out.println("Exception caught when trying to listen on port "
-	                + port + " or listening for a connection");
+	                + this.myPort + " or listening for a connection");
 	            System.out.println(e.getMessage());
 	        }	
 		
 	}
-	public static void main(String[] args){
-		//Open a socket and listen
-		int port = Integer.parseInt(args[0]);
-		System.out.println("port number is: " + port);
+	
+	
+	public void run(){
+		System.out.println("port number is: " + myPort);
 		final Queue<SocketChannel> requestQueue = new LinkedBlockingQueue<SocketChannel>();
-		MyMiddleware middleware = new MyMiddleware(port);
 		//initialize the queue
 		Selector selector;
 		try {
 			selector = Selector.open();
 			ExecutorService executorService = Executors.newFixedThreadPool(10);			
 			//start workers 
-			executorService.execute(new WorkerThread(requestQueue, selector));			
+			executorService.execute(new WorkerThread(requestQueue, selector,this.mcAddresses, readSharded));			
 			//middleware.startWorkers(executorService);
-			middleware.connectToClients(requestQueue, selector);
+			this.connectToClients(requestQueue, selector);
 			executorService.shutdown();
 			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}		
-	}
-	
+	}	
 }

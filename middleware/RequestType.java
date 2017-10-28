@@ -1,5 +1,5 @@
 package middleware;
 
-public enum CommandType {
+public enum RequestType {
 	SET, GET, MULTI_GET;
 }

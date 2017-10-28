@@ -4,7 +4,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Queue;
+import java.util.Set;
 import java.io.*;
 
 
@@ -12,81 +16,36 @@ import java.io.*;
 public class WorkerThread implements Runnable{
 	Queue<SocketChannel> requestQueue;
 	Selector selector;
-	
-	public WorkerThread(Queue<SocketChannel> requestQueue, Selector selector){
+	double numServers;
+	boolean readSharded = false;
+	List<SocketChannel> serverConnections;
+
+
+	public WorkerThread(Queue<SocketChannel> requestQueue, Selector selector, List<String> mcAddresses,
+			boolean readSharded){
 		this.requestQueue = requestQueue;
 		this.selector = selector;
-	}
-	
-	
-	// method that simply sends the request to the server and accepts the response
-	public void sendRequestToServer(int portNumber, String hostName, String request, int requestType){
-		try(
-				Socket echoSocket = new Socket(hostName, portNumber);
-				PrintWriter out = new PrintWriter(echoSocket.getOutputStream(), true);
-				BufferedReader in = new BufferedReader(new InputStreamReader(echoSocket.getInputStream()));
-				){
-			
-			/*sendCommand
-			 * command types: 
-			 * 0 - set
-			 * 1 - get
-			 * 2 - multi get
-			 */
-			if(requestType==0){
-				boolean isSet = set(request, in, out);
-			}else if(requestType==1){
-				String value = get(request, in, out);
-				if (value != null)
-					returnToClient();
-			}	
-			
-		} catch (UnknownHostException e){
-			System.err.println("Don't know about host " + hostName);
-			System.exit(1);
-		}catch (IOException e){
-			System.err.println("Couldn't get I/O for the connection to " + hostName);
-			System.exit(1);
-		}
-	}
-	private void returnToClient() {
-		// TODO Auto-generated method stub
-		
-	}
-	// method to process the request
-	public void sendCommand(String request, int requestType){
-		
+		this.numServers = (double) mcAddresses.size();
+		this.readSharded = readSharded;
+		//this.serverConnections = openServerConnections(mcAddresses);
 	}
 
-	public String get(String key, BufferedReader in, PrintWriter out){
-		out.println(key);
-		String data = null;
-		// if value for key is not there server response it's "END"
-		//
-		String serverResponse;
-		try {
-			serverResponse = in.readLine();		
-			if (!serverResponse.equals("END")){
-				// serverResponse - "VALUE key flag numBytes
-				//read DATA
-				data = in.readLine();
-				// read "END"
-				in.readLine();
+	
+	private List<SocketChannel> openServerConnections(List<String> mcAddresses) {
+		List<SocketChannel> serverConnections = new ArrayList<SocketChannel>();
+		for(int i=0; i<mcAddresses.size();i++){
+			try {
+				SocketChannel server = SocketChannel.open(new InetSocketAddress(mcAddresses.get(i), 11211));
+				server.register(this.selector, SelectionKey.OP_READ); 
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
 			}
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
 		}
-		return data;
+		return serverConnections;
 	}
-	public boolean set(String request, BufferedReader in, PrintWriter out){
-		String[] key_val = request.split(" ");
-		// get number of Bytes
-		int numBytes = key_val[1].getBytes().length; 
-		String command = "set ";
-		//TODO 
-		return false;
-	}
+
+
 	public void run(){
 		//check if there is Something in the queue
 		while(true){
@@ -101,48 +60,138 @@ public class WorkerThread implements Runnable{
 	}
 	private void processClientMessage(SocketChannel client) {
 		if (client == null) return;
-		ByteBuffer buffer = ByteBuffer.allocate(1536);
-		try {
-			//System.out.println("Ok we are trying to process some message");
-			int readByte =client.read(buffer);
-			
-			while(readByte!=0){
-				StringBuffer request = new StringBuffer("");
-				buffer.flip();
-				
-				while(buffer.hasRemaining()) request.append((char) buffer.get());
-				CommandType type = getCommandType(request.charAt(0));
-				System.out.println(request.toString());
-				//System.out.println(request.toString().split("\n")[0]);
-				System.out.println(type.toString());
-				buffer.clear();
+		// allocate buffer to receive message
+		// TODO deal with incomplete requests and multigets
+		ByteBuffer buffer = ByteBuffer.allocate(6);
+		// read the message from client
+		StringBuffer fromClient = readMessage(client, buffer);
+		Request request = new Request(fromClient);
+		if(!request.isComplete()) fromClient.append(readMessage(client, buffer));
+		StringBuffer response = new StringBuffer("STORED");
+		// process message and send to servers
+		switch(request.getType()){
+		case SET:
+			this.set(request);
+		case GET:
+			response = this.get(request);
+		case MULTI_GET:
+			//response = 
+		}
+		buffer.put(response.toString().getBytes());
+		sendMessage(client, buffer);
+		buffer.clear();
+		//readByte = client.read(buffer);
 
-				readByte = client.read(buffer);
-				System.out.println(readByte);
+		
+	}
 
-				/*if( type== CommandType.SET){
-					System.out.println("This should be the value" + new String(buffer.array()));
-				}*/
+	//get the hashing of the key
+	
+	//get server id from consistent hashing server
+	public static int getServerIndex(String key, double numServers){
+		double hashedKey = getHashedKey(key, numServers);
+		return (int) Math.ceil(hashedKey/(1.0/numServers));
+	}
+
+	public static double getHashedKey(String key, double numServers){
+		double hashedKey = ((double) key.hashCode()%numServers)/numServers;
+		return hashedKey;
+	}
+
+	/*public boolean isSetSuccess(String response){
+		return response.equals("STORED");
+	}*/
+	
+	public void set(Request request){
+		ByteBuffer buffer = ByteBuffer.allocate(1024);
+		buffer.put(request.content.getBytes());
+		for (int i=0; i<this.numServers; i++){
+			SocketChannel server = this.serverConnections.get(i);
+			this.sendMessage(server, buffer);
+		}
+		while (true){
+			int stored=0;
+			try {
+				selector.select();
+				Set<SelectionKey> selectedKeys = selector.selectedKeys();
+	            Iterator<SelectionKey> iter = selectedKeys.iterator();
+	            while (iter.hasNext()) {
+	 
+	                SelectionKey key = iter.next();
+	                // read events are for client channels. Add "request" to the queue
+	                if (key.isReadable()) {
+	                    SocketChannel server = (SocketChannel) key.channel();
+	                    if(this.readMessage(server, buffer).equals("STORED"))
+	                    	stored++;
+	                    else
+	                    	this.sendMessage(server, buffer);
+	                }
+	          
+	                iter.remove();	                
+	            }
+	            // when we have all of the servers positive responses - break
+	            if (stored == this.numServers) break;
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
 			}
+			//keep track of how many servers have successfully stored the request
 			
+		}
+	}
+	
+	public StringBuffer get(Request request){
+		ByteBuffer buffer = ByteBuffer.allocate(1024);
+		int serverId = getServerIndex(request.getKey(), this.numServers);
+		SocketChannel server = this.serverConnections.get(serverId);
+		buffer.put(request.content.getBytes());
+		sendMessage(server, buffer);
+		StringBuffer response = this.readMessage(server, buffer);		
+		return response;
+	}
+	
+	public String multi_get(Request request){
+		StringBuffer response = new StringBuffer("");
+		if (!readSharded){
+			response = get(request);
+		}else{
+			String[] keys = request.getKey().split(" ");
+			for(int i=0;i<keys.length; i++){
+				Request smallReq = new Request("get " + keys[i]);
+				response.append(get(smallReq)+"\r\n");
+			}
+		}
+		return response.toString();
+	}
+	
+	public StringBuffer readMessage(SocketChannel socketChannel,ByteBuffer buffer){
+		StringBuffer readMessage = new StringBuffer("");
+		try {
+			int readByte =socketChannel.read(buffer);
+
+			while(readByte!=0){				
+				//String request;
+				buffer.flip();
+				//find a way to turn str buffer to string directly
+				while(buffer.hasRemaining()) readMessage.append((char) buffer.get());
+				buffer.clear();
+				readByte = socketChannel.read(buffer);
+			} 
+		}catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+		}
+		return readMessage;
+	}
+	
+	public void sendMessage(SocketChannel server, ByteBuffer buffer){
+		try {
+		    buffer.flip();
+	        server.write(buffer);
+	        buffer.clear();
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
 	
-	public String hashedKey(){
-		// TODO 
-		return null;
-	}
-	
-	public CommandType getCommandType(char firstChar){
-		if (firstChar == 'g')
-			return CommandType.GET;
-		if (firstChar == 's')
-			return CommandType.SET;
-		if (firstChar == 'm')
-			return CommandType.MULTI_GET;
-		return null;
-	}
 }
