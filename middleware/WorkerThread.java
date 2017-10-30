@@ -75,14 +75,12 @@ public class WorkerThread implements Runnable{
 		case GET:
 			response = this.get(request);
 		case MULTI_GET:
-			//response = 
+			response = this.multi_get(request);
 		}
 		buffer.put(response.toString().getBytes());
 		sendMessage(client, buffer);
 		buffer.clear();
-		//readByte = client.read(buffer);
-
-		
+		//readByte = client.read(buffer);	
 	}
 
 	//get the hashing of the key
@@ -150,7 +148,7 @@ public class WorkerThread implements Runnable{
 		return response;
 	}
 	
-	public String multi_get(Request request){
+	public StringBuffer multi_get(Request request){
 		StringBuffer response = new StringBuffer("");
 		if (!readSharded){
 			response = get(request);
@@ -161,7 +159,7 @@ public class WorkerThread implements Runnable{
 				response.append(get(smallReq)+"\r\n");
 			}
 		}
-		return response.toString();
+		return response;
 	}
 	
 	public StringBuffer readMessage(SocketChannel socketChannel,ByteBuffer buffer){

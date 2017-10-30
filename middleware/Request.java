@@ -12,11 +12,11 @@ public class Request {
 	
 	public Request(StringBuffer request){
 		this.content = request.toString();
-		this.type = getRequestType(request.substring(0, 4));
+		this.type = getRequestType(this.content.substring(0, 4));
 	}
 	public Request(String request){
 		this.content = request.toString();
-		this.type = getRequestType(request.substring(0, 4));
+		this.type = getRequestType(this.content.substring(0, 4));
 	}
 	
 	public boolean isComplete(){
