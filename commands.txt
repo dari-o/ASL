@@ -1,4 +1,4 @@
-memtier_benchmark --port=12345  --protocol= memcache_text --ratio=0:1  --expiry -range=9999 -10000  --key -maximum=1000 --server=localhost --testtime=10 --clients=1 --threads=1
+memtier_benchmark --port=11311 --protocol=memcache_text --ratio=2:1 --expiry-range=9999-10000 --key-maximum=1000 --server=localhost --test-time=10 --clients=1 --threads=1
 
 A memcache/redis NoSQL traffic generator and performance benchmarking tool.
 

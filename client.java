@@ -3,7 +3,7 @@ import java.net.*;
 
 public class client{
     public static int valueSize = 64;
-    public static void main(String[] args) throws IOException{
+    public static void main(String[] args) throws IOException, InterruptedException{
 	if(args.length != 2){
 	    System.err.println("blah blah");
 	    System.exit(1);
@@ -17,11 +17,17 @@ public class client{
 	    BufferedReader stdIn = new BufferedReader(new InputStreamReader(System.in))
 	    ){
 	    String userInput;
-	    
-	    while((userInput = stdIn.readLine()) != null){
-		
-		sendCommand(userInput, in, out, stdIn);
+	    int i = 0;
+	   
+	    while(true){	
+		String send = "set memtie" + i + " 0 0 5\r\nwhat" + i + "\r\n";
+		out.println(userInput);
+		//sendCommand(send, in, out, stdIn);
+		Thread.sleep(1000);
 		System.out.println("Enter a command");
+		i++;
+		if (i>10) i=i-10;
+		
 	    }
 	} catch (UnknownHostException e){
 	    System.err.println("Don't know about host " + hostName);
@@ -71,12 +77,8 @@ public class client{
 	boolean stored = false;
 	boolean error = false;
 	try{   
+	
 	    
-	    String key = userInput.split(" ")[1];
-	    System.out.printf("Please enter the value with key %s\n", key);
-	    String value = stdIn.readLine();
-	    int hashedKey = key.hashCode();
-	    out.println(userInput);
 	    out.println(value + "\r");
 	    String result;
 	    result = in.readLine();

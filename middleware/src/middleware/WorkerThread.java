@@ -1,4 +1,9 @@
 package middleware;
+
+import org.apache.log4j.Logger;
+
+import org.apache.log4j.BasicConfigurator;
+
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
@@ -7,27 +12,27 @@ import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Queue;
 import java.util.Set;
 import java.io.*;
 
 
 //Class for the worker 
 public class WorkerThread implements Runnable{
-	Queue<SocketChannel> requestQueue;
+	//static Logger log = Logger.getLogger("bacon");
+	//Queue<SocketChannel> requestQueue;
 	Selector selector;
 	double numServers;
 	boolean readSharded = false;
 	List<SocketChannel> serverConnections;
-
-
-	public WorkerThread(Queue<SocketChannel> requestQueue, Selector selector, List<String> mcAddresses,
-			boolean readSharded){
-		this.requestQueue = requestQueue;
-		this.selector = selector;
+	Logger log = Logger.getLogger("Worker Thread");
+	
+	public WorkerThread(/*Queue<SocketChannel> requestQueue,*/ List<String> mcAddresses,
+			boolean readSharded) throws IOException{
+		//this.requestQueue = requestQueue;
+		this.selector = Selector.open();
 		this.numServers = (double) mcAddresses.size();
 		this.readSharded = readSharded;
-		//this.serverConnections = openServerConnections(mcAddresses);
+		this.serverConnections = openServerConnections(mcAddresses);
 	}
 
 	
@@ -35,8 +40,11 @@ public class WorkerThread implements Runnable{
 		List<SocketChannel> serverConnections = new ArrayList<SocketChannel>();
 		for(int i=0; i<mcAddresses.size();i++){
 			try {
-				SocketChannel server = SocketChannel.open(new InetSocketAddress(mcAddresses.get(i), 11211));
+				String[] info = mcAddresses.get(i).split(":");
+				SocketChannel server = SocketChannel.open(new InetSocketAddress(info[0], Integer.parseInt(info[1])));
+				server.configureBlocking(false);
 				server.register(this.selector, SelectionKey.OP_READ); 
+				serverConnections.add(server);
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -47,40 +55,62 @@ public class WorkerThread implements Runnable{
 
 
 	public void run(){
+		
 		//check if there is Something in the queue
-		while(true){
-			SocketChannel client = null;
-			synchronized(this.requestQueue){
-				if(!this.requestQueue.isEmpty())
-					//make sure that the threads
-					client= this.requestQueue.poll();
-			}
-			processClientMessage(client);
+		while(true) {			
+			Request request = null;
+			//System.out.println(Thread.currentThread().isAlive());
+			///synchronized(MyMiddleware.requestQueue){
+				//System.out.println("Checking the queue");
+			while(MyMiddleware.requestQueue.isEmpty());
+			request= MyMiddleware.requestQueue.poll();
+			processClientMessage(request);
+			//}			
 		}
 	}
-	private void processClientMessage(SocketChannel client) {
-		if (client == null) return;
+	private void processClientMessage(Request request) {
+		if (request == null) return;
 		// allocate buffer to receive message
 		// TODO deal with incomplete requests and multigets
-		ByteBuffer buffer = ByteBuffer.allocate(6);
-		// read the message from client
-		StringBuffer fromClient = readMessage(client, buffer);
-		Request request = new Request(fromClient);
-		if(!request.isComplete()) fromClient.append(readMessage(client, buffer));
-		StringBuffer response = new StringBuffer("STORED");
-		// process message and send to servers
-		switch(request.getType()){
-		case SET:
-			this.set(request);
-		case GET:
-			response = this.get(request);
-		case MULTI_GET:
-			response = this.multi_get(request);
-		}
-		buffer.put(response.toString().getBytes());
-		sendMessage(client, buffer);
-		buffer.clear();
-		//readByte = client.read(buffer);	
+		try {
+			ByteBuffer buffer = ByteBuffer.allocate(1024);
+			SocketChannel client = request.getClient();
+			/* read the message from client
+			System.out.println("Reading a message from client");
+			try {
+				StringBuffer fromClient = readMessage(client, buffer);
+			
+				if(fromClient.length()==0) {
+					System.out.println("Got an empty message will break out and try again");
+					return;
+					//fromClient = readMessage(client, buffer);
+					/*buffer.put("ERROR\r\n".getBytes());
+				sendMessage(client, buffer);
+				buffer.clear();
+				}
+				Request request = new Request(fromClient);
+				if(!request.isComplete()) fromClient.append(readMessage(client, buffer));*/
+				StringBuffer response = null;
+				switch(request.getType()){
+				case SET:
+					response = this.set(request, buffer);
+				case GET:
+					response = this.get(request.content.toString(), request.getKey(), buffer);
+				case MULTI_GET:
+					response = this.multi_get(request, buffer);
+				}
+			
+				System.out.println("Sending response back to client");
+				buffer.put(response.toString().getBytes());
+				sendMessage(client, buffer);
+				buffer.clear();
+			}catch(IOException e) {
+				System.out.println("Client connection exception");
+				return;
+			}
+			// process message and send to servers
+
+			
 	}
 
 	//get the hashing of the key
@@ -96,99 +126,93 @@ public class WorkerThread implements Runnable{
 		return hashedKey;
 	}
 
-	/*public boolean isSetSuccess(String response){
-		return response.equals("STORED");
-	}*/
-	
-	public void set(Request request){
-		ByteBuffer buffer = ByteBuffer.allocate(1024);
-		buffer.put(request.content.getBytes());
+		
+	public StringBuffer set(Request request, ByteBuffer buffer) throws IOException{
+		//ByteBuffer buffer = ByteBuffer.allocate(1024);
+		buffer.put(request.content.toString().getBytes());
 		for (int i=0; i<this.numServers; i++){
 			SocketChannel server = this.serverConnections.get(i);
+			System.out.println("sending requesto to server");
 			this.sendMessage(server, buffer);
 		}
-		while (true){
+		outer: while (true){
 			int stored=0;
-			try {
-				selector.select();
-				Set<SelectionKey> selectedKeys = selector.selectedKeys();
-	            Iterator<SelectionKey> iter = selectedKeys.iterator();
-	            while (iter.hasNext()) {
-	 
-	                SelectionKey key = iter.next();
-	                // read events are for client channels. Add "request" to the queue
-	                if (key.isReadable()) {
-	                    SocketChannel server = (SocketChannel) key.channel();
-	                    if(this.readMessage(server, buffer).equals("STORED"))
-	                    	stored++;
-	                    else
-	                    	this.sendMessage(server, buffer);
-	                }
-	          
-	                iter.remove();	                
-	            }
-	            // when we have all of the servers positive responses - break
-	            if (stored == this.numServers) break;
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+			String response = null;
+			this.selector.select();
+			Set<SelectionKey> selectedKeys = selector.selectedKeys();
+			Iterator<SelectionKey> iter = selectedKeys.iterator();
+			while (iter.hasNext()) { 
+				SelectionKey key = iter.next();
+				// read events are for client channels. Add "request" to the queue
+				if (key.isReadable()) {
+					SocketChannel server = (SocketChannel) key.channel();
+					System.out.println("reading response from server");
+					response = this.readMessage(server, buffer).toString();
+					//keep track of how many servers have successfully stored the request
+					if(response.equals("STORED\r\n"))
+						stored++;
+					else
+						this.sendMessage(server, buffer);
+				}         
+				iter.remove();
+				// when we have all of the servers positive responses - break
+				if (stored == this.numServers) break outer;
 			}
-			//keep track of how many servers have successfully stored the request
-			
 		}
+		return response;
 	}
 	
-	public StringBuffer get(Request request){
-		ByteBuffer buffer = ByteBuffer.allocate(1024);
-		int serverId = getServerIndex(request.getKey(), this.numServers);
+	public StringBuffer get(String requestContent, String requestKey, ByteBuffer buffer) throws IOException{
+		
+		//ByteBuffer buffer = ByteBuffer.allocate(1024);
+		int serverId = getServerIndex(requestKey, this.numServers);
 		SocketChannel server = this.serverConnections.get(serverId);
-		buffer.put(request.content.getBytes());
+		buffer.put(requestContent.getBytes());
 		sendMessage(server, buffer);
 		StringBuffer response = this.readMessage(server, buffer);		
 		return response;
 	}
 	
-	public StringBuffer multi_get(Request request){
+	public StringBuffer multi_get(Request request, ByteBuffer buffer) throws IOException{
 		StringBuffer response = new StringBuffer("");
 		if (!readSharded){
-			response = get(request);
+			response = get(request.content.toString(), request.getKey(), buffer);
 		}else{
 			String[] keys = request.getKey().split(" ");
 			for(int i=0;i<keys.length; i++){
-				Request smallReq = new Request("get " + keys[i]);
-				response.append(get(smallReq)+"\r\n");
+				String smallReq = "get " + keys[i] + "\r\n";
+				response.append(get(smallReq,  keys[i], buffer)+"\r\n");
 			}
 		}
 		return response;
 	}
 	
-	public StringBuffer readMessage(SocketChannel socketChannel,ByteBuffer buffer){
+	public StringBuffer readMessage(SocketChannel socketChannel,ByteBuffer buffer) throws IOException{
+		//System.out.println("reading a message");
+		
+		
 		StringBuffer readMessage = new StringBuffer("");
-		try {
-			int readByte =socketChannel.read(buffer);
-
-			while(readByte!=0){				
-				//String request;
-				buffer.flip();
-				//find a way to turn str buffer to string directly
-				while(buffer.hasRemaining()) readMessage.append((char) buffer.get());
-				buffer.clear();
-				readByte = socketChannel.read(buffer);
-			} 
-		}catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+		int readByte =socketChannel.read(buffer);		
+		while(readByte!=0){				
+			//String request;
+			buffer.flip();
+			//find a way to turn str buffer to string directly
+			while(buffer.hasRemaining()) readMessage.append((char) buffer.get());				
+			buffer.clear();
+			readByte = socketChannel.read(buffer);
 		}
 		return readMessage;
+
+
 	}
 	
 	public void sendMessage(SocketChannel server, ByteBuffer buffer){
 		try {
+			//System.out.println("sending a message");
 		    buffer.flip();
 	        server.write(buffer);
 	        buffer.clear();
 		} catch (IOException e) {
-			e.printStackTrace();
 		}
 	}
 	

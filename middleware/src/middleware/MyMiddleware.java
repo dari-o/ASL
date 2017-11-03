@@ -8,6 +8,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.net.*;
 import java.util.List;
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.channels.*;
 public class MyMiddleware{
 	
@@ -18,6 +19,7 @@ public class MyMiddleware{
 	boolean readSharded = false;
 	double numServers;
 	List<Double> serverPoints;
+	public static Queue<Request> requestQueue = new LinkedBlockingQueue<Request>();
 	
 	public MyMiddleware(String myIp, int myPort, List<String> mcAddresses, int numThreadsPTP, boolean readSharded){
 		this.myPort = myPort;
@@ -29,7 +31,7 @@ public class MyMiddleware{
 	}
 	
 	
-	public void connectToClients(Queue<SocketChannel> requestQueue, Selector selector){
+	public void connectToClients(Selector selector){
 		try {
 				//create a selector and a socket channel. Register channel on the selector
 				ServerSocketChannel middlewareSocket = ServerSocketChannel.open();
@@ -37,9 +39,8 @@ public class MyMiddleware{
 				
 				
 				//configure non blocking mode. Otherwise, can't use selector
-				middlewareSocket.configureBlocking(false);				
+				middlewareSocket.configureBlocking(false);					
 				middlewareSocket.register(selector, SelectionKey.OP_ACCEPT);				
-				System.out.println("will start waiting for a client");
 				while (true) {
 					// select a channel 
 		            selector.select();
@@ -57,9 +58,8 @@ public class MyMiddleware{
 		                }
 		                // read events are for client channels. Add "request" to the queue
 		                if (key.isReadable()) {
-		                    SocketChannel client = (SocketChannel) key.channel();
-		                    requestQueue.add(client);
-		        
+		                	readFromClient(key);
+		                    System.out.println("Number of requests: " + MyMiddleware.requestQueue.size());
 		                }
 		                iter.remove();
 		            }
@@ -75,22 +75,52 @@ public class MyMiddleware{
 	
 	
 	public void run(){
-		System.out.println("port number is: " + myPort);
-		final Queue<SocketChannel> requestQueue = new LinkedBlockingQueue<SocketChannel>();
-		//initialize the queue
 		Selector selector;
 		try {
 			selector = Selector.open();
-			ExecutorService executorService = Executors.newFixedThreadPool(10);			
+			ExecutorService executorService = Executors.newFixedThreadPool(2);			
 			//start workers 
-			executorService.execute(new WorkerThread(requestQueue, selector,this.mcAddresses, readSharded));			
+			executorService.execute(new WorkerThread(/*requestQueue,*/ this.mcAddresses, readSharded));			
 			//middleware.startWorkers(executorService);
-			this.connectToClients(requestQueue, selector);
+			this.connectToClients(selector);
+			//while(!executorService.isTerminated()) System.out.println("TRUEEEEEEEEEEEEEEEEEEEEE");
+
 			executorService.shutdown();
 			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}		
-	}	
+	}
+	
+	public void readFromClient(SelectionKey key) throws IOException {
+		ByteBuffer buffer = ByteBuffer.allocate(1024);
+        SocketChannel client = (SocketChannel) key.channel();
+        
+        StringBuffer readMessage = new StringBuffer("");
+		int readByte = client.read(buffer);
+		while(readByte > 0){				
+			//String request;
+			buffer.flip();
+			//find a way to turn str buffer to string directly
+			while(buffer.hasRemaining()) readMessage.append((char) buffer.get());				
+			buffer.clear();
+			readByte = client.read(buffer);
+		}
+		
+		if(key.attachment()==null) {
+			System.out.println("new message from client!");
+			Request request = new Request(readMessage, client);
+			if(request.isComplete()) MyMiddleware.requestQueue.add(request);
+			else key.attach(request);			
+		}else {
+			Request request = (Request) key.attachment();
+			if(request.append(readMessage)) {
+				key.attach(null);
+				MyMiddleware.requestQueue.add(request);
+			}
+				
+		}
+		
+	}
 }
