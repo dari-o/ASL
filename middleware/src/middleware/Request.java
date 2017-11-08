@@ -7,27 +7,28 @@ public class Request {
 	public StringBuffer content;
 	private int requestLength;
 	private SocketChannel client;
-	private boolean complete = false;
+	private boolean complete = true;
 	
-	public Request(StringBuffer request, SocketChannel client){
+	public Request(StringBuffer request, SocketChannel client) throws IllegalArgumentException{
+		if(request.length()==0)
+			throw new IllegalArgumentException("invalid request");
 		this.content = request;		
 		this.type = getRequestType(this.content.substring(0, 4));
 		this.client = client;
 		setComplete();
 	}
-	/*public Request(String request){
-		this.content = request.toString();		
-		this.type = getRequestType(this.content.substring(0, 4));
-	}*/
 	
+	/*public Request(StringBuffer r, SocketChannel client) {
+		
+	}*/
 	public void setComplete(){
 		String strContent = this.content.toString();
 		if(!strContent.endsWith("\r\n")) {
 			this.complete=false;
 			return;
 		}
-		if((this.type == RequestType.SET) && strContent.split("\r\n").length==2) 
-			this.complete = true;
+		if((this.type == RequestType.SET) && strContent.split("\r\n").length!=2) 
+			this.complete = false;
 	}
 	
 	public RequestType getRequestType(String command){

@@ -5,6 +5,11 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+import org.apache.log4j.PropertyConfigurator;
+
 import java.net.*;
 import java.util.List;
 import java.io.*;
@@ -20,6 +25,8 @@ public class MyMiddleware{
 	double numServers;
 	List<Double> serverPoints;
 	public static Queue<Request> requestQueue = new LinkedBlockingQueue<Request>();
+	static final Logger logger = LogManager.getLogger(MyMiddleware.class);
+
 	
 	public MyMiddleware(String myIp, int myPort, List<String> mcAddresses, int numThreadsPTP, boolean readSharded){
 		this.myPort = myPort;
@@ -28,6 +35,7 @@ public class MyMiddleware{
 		this.numThreadsPTP = numThreadsPTP;
 		this.readSharded = readSharded;
 		this.numServers = (double) mcAddresses.size();
+		
 	}
 	
 	
@@ -44,6 +52,7 @@ public class MyMiddleware{
 				while (true) {
 					// select a channel 
 		            selector.select();
+		            
 		            Set<SelectionKey> selectedKeys = selector.selectedKeys();
 		            Iterator<SelectionKey> iter = selectedKeys.iterator();
 		            while (iter.hasNext()) {
@@ -54,12 +63,13 @@ public class MyMiddleware{
 		                    SocketChannel client = middlewareSocket.accept();
 		                    client.configureBlocking(false);
 		                    client.register(selector, SelectionKey.OP_READ);
-		                    System.out.println("Connected to a client");
+		                    logger.info("Connected to a client");
 		                }
 		                // read events are for client channels. Add "request" to the queue
 		                if (key.isReadable()) {
+		                	logger.info("selected read key");
 		                	readFromClient(key);
-		                    System.out.println("Number of requests: " + MyMiddleware.requestQueue.size());
+		                    //System.out.println("Number of requests: " + MyMiddleware.requestQueue.size());
 		                }
 		                iter.remove();
 		            }
@@ -77,8 +87,11 @@ public class MyMiddleware{
 	public void run(){
 		Selector selector;
 		try {
+			
 			selector = Selector.open();
-			ExecutorService executorService = Executors.newFixedThreadPool(2);			
+			ExecutorService executorService = Executors.newFixedThreadPool(2);	
+			PropertyConfigurator.configure("/home/algolab/Documents/ASL/log4j.properties");
+
 			//start workers 
 			executorService.execute(new WorkerThread(/*requestQueue,*/ this.mcAddresses, readSharded));			
 			//middleware.startWorkers(executorService);
@@ -96,10 +109,11 @@ public class MyMiddleware{
 	public void readFromClient(SelectionKey key) throws IOException {
 		ByteBuffer buffer = ByteBuffer.allocate(1024);
         SocketChannel client = (SocketChannel) key.channel();
-        
         StringBuffer readMessage = new StringBuffer("");
 		int readByte = client.read(buffer);
-		while(readByte > 0){				
+		while(readByte > 0){
+	        //System.out.println("Bytes Read " + readByte);
+			logger.info("reading from client");
 			//String request;
 			buffer.flip();
 			//find a way to turn str buffer to string directly
@@ -107,12 +121,23 @@ public class MyMiddleware{
 			buffer.clear();
 			readByte = client.read(buffer);
 		}
+		if(readByte==-1) {
+			//System.out.println("CANCELLING KEY " + key.channel().isOpen());
+			key.cancel();
+			return;
+		}
 		
 		if(key.attachment()==null) {
-			System.out.println("new message from client!");
-			Request request = new Request(readMessage, client);
+			Request request;
+			try	{
+				request = new Request(readMessage, client);
+			}catch(IllegalArgumentException e){
+				
+				return;
+			}
 			if(request.isComplete()) MyMiddleware.requestQueue.add(request);
-			else key.attach(request);			
+			else key.attach(request);
+			logger.info("adding message to the queue");
 		}else {
 			Request request = (Request) key.attachment();
 			if(request.append(readMessage)) {
