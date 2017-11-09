@@ -3,6 +3,11 @@ package middleware;
 import java.nio.channels.SocketChannel;
 
 public class Request {
+	public static int numSet = 0;
+	public static int numGet = 0;
+	public static int numMultiGet = 0;
+	public long sendingTime = -1;
+	
 	private RequestType type;
 	public StringBuffer content;
 	private int requestLength;
@@ -32,12 +37,16 @@ public class Request {
 	}
 	
 	public RequestType getRequestType(String command){
-		if (command.equals("get "))
+		if (command.equals("get ")) {
+			Request.numGet +=1;
 			return RequestType.GET;
-		if (command.equals("set "))
+		}if (command.equals("set ")) {
+			Request.numSet +=1;
 			return RequestType.SET;
-		if (command.equals("gets"))
+		}if (command.equals("gets")) {
+			Request.numMultiGet += 1;
 			return RequestType.MULTI_GET;
+		}
 		return null;
 	}
 	
@@ -62,4 +71,5 @@ public class Request {
 		setComplete();
 		return this.complete;
 	}
+	
 }

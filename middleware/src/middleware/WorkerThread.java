@@ -18,8 +18,6 @@ import java.io.*;
 
 //Class for the worker 
 public class WorkerThread implements Runnable{
-	//static Logger log = Logger.getLogger("bacon");
-	//Queue<SocketChannel> requestQueue;
 	Selector selector;
 	double numServers;
 	long id;
@@ -29,7 +27,7 @@ public class WorkerThread implements Runnable{
 	String fileName = "/home/algolab/Documents/ASL/log4j.properties";
 	
 	
-	public WorkerThread(/*Queue<SocketChannel> requestQueue,*/ List<String> mcAddresses,
+	public WorkerThread(List<String> mcAddresses,
 			boolean readSharded) throws IOException{
 
 		this.selector = Selector.open();
@@ -64,14 +62,12 @@ public class WorkerThread implements Runnable{
 		//check if there is Something in the queue
 		while(true) {			
 			Request request = null;
-			//System.out.println(Thread.currentThread().isAlive());
-			///synchronized(MyMiddleware.requestQueue){
-				//System.out.println("Checking the queue");
-			logger.info("Thread" + this.id + "polling queue");
+			
+			//logger.info("Thread" + this.id + "polling queue");
 			while(MyMiddleware.requestQueue.isEmpty());
 			request= MyMiddleware.requestQueue.poll();
 			processClientMessage(request);
-			//}			
+					
 		}
 	}
 	private void processClientMessage(Request request) {
@@ -81,7 +77,7 @@ public class WorkerThread implements Runnable{
 		try {
 			ByteBuffer buffer = ByteBuffer.allocate(1024);
 			SocketChannel client = request.getClient();
-				logger.debug("got a request " + request.content);
+				//logger.debug("got a request " + request.content);
 				StringBuffer response = null;
 				switch(request.getType()){
 				case SET:
@@ -94,14 +90,12 @@ public class WorkerThread implements Runnable{
 					response = this.multi_get(request, buffer);
 					break;
 				}
-				//System.out.println("RESPONSE IS " + response);
-				logger.info("sending response " + response);
+				//logger.info("sending response " + response);
 				buffer.put(response.toString().getBytes());
 				sendMessage(client, buffer);
 				buffer.clear();
 				//System.out.println("SENT");
 			}catch(IOException e) {
-				//System.out.println("Client connection exception");
 				return;
 			}
 			// process message and send to servers
@@ -109,7 +103,6 @@ public class WorkerThread implements Runnable{
 			
 	}
 
-	//get the hashing of the key
 	
 	//get server id from consistent hashing server
 	public static int getServerIndex(String key, double numServers){
@@ -117,6 +110,7 @@ public class WorkerThread implements Runnable{
 		return (int) Math.ceil(hashedKey/(1.0/numServers));
 	}
 
+	//get the hashing of the key
 	public static double getHashedKey(String key, double numServers){
 		double hashedKey = ((double) key.hashCode()%numServers)/numServers;
 		return hashedKey;
@@ -124,7 +118,6 @@ public class WorkerThread implements Runnable{
 
 		
 	public StringBuffer set(Request request, ByteBuffer buffer) throws IOException{
-		//ByteBuffer buffer = ByteBuffer.allocate(1024);
 		StringBuffer response = null;
 
 		buffer.put(request.content.toString().getBytes());
@@ -161,13 +154,11 @@ public class WorkerThread implements Runnable{
 	
 	public StringBuffer get(String requestContent, String requestKey, ByteBuffer buffer) throws IOException{
 		
-		//ByteBuffer buffer = ByteBuffer.allocate(1024);
 		int serverId = getServerIndex(requestKey, this.numServers);
 		SocketChannel server = this.serverConnections.get(serverId);
 		buffer.put(requestContent.getBytes());
 		sendMessage(server, buffer);
 		StringBuffer response = this.readMessage(server, buffer);		
-		//System.out.println(response);
 		return response;
 	}
 	
@@ -189,14 +180,11 @@ public class WorkerThread implements Runnable{
 		StringBuffer readMessage = new StringBuffer("");
 		int readByte =socketChannel.read(buffer);		
 		while(readByte!=0){				
-			//String request;
 			buffer.flip();
-			//find a way to turn str buffer to string directly
 			while(buffer.hasRemaining()) readMessage.append((char) buffer.get());				
 			buffer.clear();
 			readByte = socketChannel.read(buffer);
 		}
-		//System.out.println(readMessage);
 		return readMessage;
 		
 

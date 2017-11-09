@@ -9,7 +9,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PropertyConfigurator;
-
+import java.util.Date;
 import java.net.*;
 import java.util.List;
 import java.io.*;
@@ -89,14 +89,14 @@ public class MyMiddleware{
 		try {
 			
 			selector = Selector.open();
-			ExecutorService executorService = Executors.newFixedThreadPool(2);	
+			
+			ExecutorService executorService = Executors.newFixedThreadPool(this.numThreadsPTP);	
 			PropertyConfigurator.configure("/home/algolab/Documents/ASL/log4j.properties");
 
 			//start workers 
 			executorService.execute(new WorkerThread(/*requestQueue,*/ this.mcAddresses, readSharded));			
 			//middleware.startWorkers(executorService);
 			this.connectToClients(selector);
-			//while(!executorService.isTerminated()) System.out.println("TRUEEEEEEEEEEEEEEEEEEEEE");
 
 			executorService.shutdown();
 			
