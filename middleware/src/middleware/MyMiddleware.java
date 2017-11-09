@@ -9,7 +9,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.log4j.PropertyConfigurator;
-import java.util.Date;
+//import java.util.Date;
 import java.net.*;
 import java.util.List;
 import java.io.*;
@@ -17,6 +17,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.*;
 public class MyMiddleware{
 	
+	public static double sumQueueLen;
+	public static double qeueueLenMeasures =0;
 	String myIp;
 	int myPort = 0;
 	List<String> mcAddresses = null;
@@ -85,6 +87,12 @@ public class MyMiddleware{
 	
 	
 	public void run(){
+		// Init some measures		
+		MyMiddleware.sumQueueLen = 0;
+		MyMiddleware.qeueueLenMeasures = 0;
+		Response.initMeasurements();
+		Request.initMeasurements();
+		
 		Selector selector;
 		try {
 			

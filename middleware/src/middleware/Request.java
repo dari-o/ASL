@@ -3,17 +3,23 @@ package middleware;
 import java.nio.channels.SocketChannel;
 
 public class Request {
-	public static int numSet = 0;
-	public static int numGet = 0;
-	public static int numMultiGet = 0;
-	public long sendingTime = -1;
 	
+	// static global variables for statistic purposed
+	private static int numSet;
+	private static int numGet;
+	private static int numMultiGet;
+	private static long queueTimes;
+	private static double numRequestsAdded;
+	
+	// instance variables
 	private RequestType type;
 	public StringBuffer content;
 	private int requestLength;
 	private SocketChannel client;
 	private boolean complete = true;
-	
+	public long addedTime = -1; 
+	public long sendingTime = -1;
+
 	public Request(StringBuffer request, SocketChannel client) throws IllegalArgumentException{
 		if(request.length()==0)
 			throw new IllegalArgumentException("invalid request");
@@ -72,4 +78,26 @@ public class Request {
 		return this.complete;
 	}
 	
+	//Measurements related methods
+	public static void initMeasurements() {
+		Request.numGet = 0;
+		Request.numSet = 0;
+		Request.numMultiGet = 0;
+		Request.queueTimes = 0;
+		Request.numRequestsAdded = 0;
+	}
+	
+	public int getNumGet() {
+		return Request.numGet;
+	}
+	
+	public int getNumSet() {
+		return Request.numSet;
+	}
+	public int getNumMultiGet() {
+		return Request.numMultiGet;
+	}
+	public double getAvgQueueTime() {
+		return Request.queueTimes/Request.numRequestsAdded;
+	}
 }
